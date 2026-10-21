@@ -5,10 +5,13 @@ import Order from '../models/Order.js'
 import StaffUser from '../models/StaffUser.js'
 
 const router = Router()
-const allowedStatuses = ['processing', 'ready_for_delivery']
+const allowedStatuses = ['ready_for_delivery']
 
 router.get('/', authenticateToken, authorizeRoles('admin'), async (_request, response) => {
-  const orders = await Order.find().sort({ createdAt: -1 }).populate('assignedDriver', 'displayName username phone')
+  const orders = await Order.find().sort({ createdAt: -1 })
+    .populate('pickupDriver', 'displayName username phone')
+    .populate('deliveryDriver', 'displayName username phone')
+    .populate('assignedDriver', 'displayName username phone')
   return response.json({ orders })
 })
 
@@ -18,8 +21,8 @@ router.get('/drivers', authenticateToken, authorizeRoles('admin'), async (_reque
 })
 
 router.patch('/:orderId/assign', authenticateToken, authorizeRoles('admin'), async (request, response) => {
-  const { driverId } = request.body || {}
-  if (!mongoose.isValidObjectId(request.params.orderId) || !mongoose.isValidObjectId(driverId)) {
+  const { driverId, phase } = request.body || {}
+  if (!mongoose.isValidObjectId(request.params.orderId) || !mongoose.isValidObjectId(driverId) || !['pickup', 'delivery'].includes(phase)) {
     return response.status(400).json({ message: 'اختر طلبًا ومندوبًا صالحين' })
   }
   const driver = await StaffUser.findOne({ _id: driverId, role: 'driver', active: true })
@@ -27,11 +30,24 @@ router.patch('/:orderId/assign', authenticateToken, authorizeRoles('admin'), asy
 
   const order = await Order.findById(request.params.orderId)
   if (!order) return response.status(404).json({ message: 'الطلب غير موجود' })
-  order.assignedDriver = driver.id
-  if (order.status === 'confirmed') order.status = 'assigned'
+  if (phase === 'pickup') {
+    if (!['confirmed', 'assigned'].includes(order.status)) {
+      return response.status(409).json({ message: 'لا يمكن تغيير مندوب الاستلام بعد استلام الطلب' })
+    }
+    order.pickupDriver = driver.id
+    order.assignedDriver = driver.id
+    order.status = 'assigned'
+  } else {
+    if (order.status === 'delivered') {
+      return response.status(409).json({ message: 'لا يمكن تغيير مندوب طلب تم تسليمه' })
+    }
+    if (!order.pickupDriver && order.assignedDriver) order.pickupDriver = order.assignedDriver
+    order.deliveryDriver = driver.id
+    order.assignedDriver = driver.id
+  }
   order.statusHistory.push({ status: order.status, changedBy: request.staff.username })
   await order.save()
-  await order.populate('assignedDriver', 'displayName username phone')
+  await order.populate('pickupDriver deliveryDriver assignedDriver', 'displayName username phone')
   return response.json({ order })
 })
 
@@ -42,10 +58,16 @@ router.patch('/:orderId/status', authenticateToken, authorizeRoles('admin'), asy
   }
   const order = await Order.findById(request.params.orderId)
   if (!order) return response.status(404).json({ message: 'الطلب غير موجود' })
+  if (status !== 'ready_for_delivery' || order.status !== 'processing') {
+    return response.status(409).json({ message: 'يمكن تجهيز الطلب للتسليم بعد وصوله للمغسلة وبدء تجهيزه' })
+  }
+  if (!order.deliveryDriver) {
+    return response.status(409).json({ message: 'اختر مندوب التسليم أولاً' })
+  }
   order.status = status
   order.statusHistory.push({ status, changedBy: request.staff.username })
   await order.save()
-  await order.populate('assignedDriver', 'displayName username phone')
+  await order.populate('pickupDriver deliveryDriver assignedDriver', 'displayName username phone')
   return response.json({ order })
 })
 

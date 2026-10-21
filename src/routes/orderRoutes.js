@@ -4,6 +4,8 @@ import mongoose from 'mongoose'
 import Order from '../models/Order.js'
 import Item from '../models/Item.js'
 import Service from '../models/Service.js'
+import ItemServicePrice from '../models/ItemServicePrice.js'
+import { ensureItemServicePrices } from '../services/itemServicePrices.js'
 
 const router = Router()
 
@@ -37,20 +39,27 @@ router.post('/', async (request, response) => {
     Service.find({ _id: { $in: items.map((item) => item.serviceId) }, active: true, applyTo: 'item' }),
     Service.find({ _id: { $in: orderServiceIds }, active: true, applyTo: 'order' }),
   ])
+  await ensureItemServicePrices(catalogItems, catalogServices)
+  const pairPrices = await ItemServicePrice.find({
+    item: { $in: catalogItems.map((item) => item._id) },
+    service: { $in: catalogServices.map((service) => service._id) },
+  })
   const itemById = new Map(catalogItems.map((item) => [item.id, item]))
   const serviceById = new Map(catalogServices.map((service) => [service.id, service]))
+  const priceByPair = new Map(pairPrices.map((pair) => [`${pair.item}:${pair.service}`, pair.price]))
   if (orderServices.length !== new Set(orderServiceIds).size) {
     return response.status(400).json({ message: 'خدمة إضافية لم تعد متاحة، حدّث الطلب وحاول مرة أخرى' })
   }
   const orderItems = items.map((line) => {
     const item = itemById.get(line.itemId)
     const service = serviceById.get(line.serviceId)
-    if (!item || !service) return null
+    const unitPrice = priceByPair.get(`${line.itemId}:${line.serviceId}`)
+    if (!item || !service || !Number.isFinite(unitPrice)) return null
     return {
       name: item.name,
       service: service.name,
       quantity: line.quantity,
-      unitPrice: Math.max(8, item.price + service.extra),
+      unitPrice,
     }
   })
   if (orderItems.some((item) => !item)) return response.status(400).json({ message: 'قطعة أو خدمة لم تعد متاحة، حدّث الكتالوج وحاول مرة أخرى' })
@@ -76,7 +85,10 @@ router.post('/', async (request, response) => {
 })
 
 router.get('/track/:trackingToken', async (request, response) => {
-  const order = await Order.findOne({ trackingToken: request.params.trackingToken }).select('+trackingToken').populate('assignedDriver', 'displayName username phone')
+  const order = await Order.findOne({ trackingToken: request.params.trackingToken }).select('+trackingToken')
+    .populate('pickupDriver', 'displayName username phone')
+    .populate('deliveryDriver', 'displayName username phone')
+    .populate('assignedDriver', 'displayName username phone')
   if (!order) return response.status(404).json({ message: 'الطلب غير موجود' })
   return response.json({ order: { ...order.toObject(), trackingToken: undefined } })
 })

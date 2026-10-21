@@ -28,6 +28,8 @@ const orderSchema = new mongoose.Schema({
   expectedDeliveryAt: { type: Date, required: true },
   pickedUpAt: { type: Date, default: null },
   deliveredAt: { type: Date, default: null },
+  pickupDriver: { type: mongoose.Schema.Types.ObjectId, ref: 'StaffUser', default: null },
+  deliveryDriver: { type: mongoose.Schema.Types.ObjectId, ref: 'StaffUser', default: null },
   assignedDriver: { type: mongoose.Schema.Types.ObjectId, ref: 'StaffUser', default: null },
   status: { type: String, enum: orderStatus, default: 'confirmed' },
   statusHistory: [{
@@ -37,6 +39,8 @@ const orderSchema = new mongoose.Schema({
   }],
 }, { timestamps: true })
 
-orderSchema.index({ assignedDriver: 1, createdAt: -1 })
+orderSchema.index({ pickupDriver: 1, status: 1, createdAt: -1 })
+orderSchema.index({ deliveryDriver: 1, status: 1, createdAt: -1 })
+orderSchema.index({ assignedDriver: 1, status: 1, createdAt: -1 })
 
 export default mongoose.model('Order', orderSchema)

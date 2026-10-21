@@ -2,6 +2,7 @@ import 'dotenv/config'
 import mongoose from 'mongoose'
 import Item from '../src/models/Item.js'
 import Service from '../src/models/Service.js'
+import { ensureItemServicePrices } from '../src/services/itemServicePrices.js'
 
 const items = [
   { name: 'قميص', category: 'رجالي', price: 22, icon: 'shirt' },
@@ -44,5 +45,7 @@ await Promise.all(services.map((service) => Service.updateOne(
   { $setOnInsert: service },
   { upsert: true },
 )))
+const [savedItems, savedServices] = await Promise.all([Item.find(), Service.find()])
+await ensureItemServicePrices(savedItems, savedServices)
 console.log(`Seeded ${items.length} catalog items and ${services.length} services`)
 await mongoose.disconnect()
