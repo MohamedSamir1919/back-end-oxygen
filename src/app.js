@@ -10,7 +10,12 @@ import adminCatalogRoutes from './routes/adminCatalogRoutes.js'
 
 const app = express()
 
-app.use(cors({ origin: process.env.CLIENT_ORIGIN || 'http://localhost:5173' }))
+// app.use(cors({ origin: process.env.CLIENT_ORIGIN || 'http://localhost:5173' }))
+app.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
 app.use(express.json({ limit: '10kb' }))
 app.get('/api/health', (_request, response) => response.json({ status: 'ok' }))
 app.use('/api/auth', authRoutes)
